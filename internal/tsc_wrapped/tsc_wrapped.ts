@@ -14,7 +14,6 @@ export function main() {
 }
 
 class CompilerHost implements ts.CompilerHost {
-
   /**
    * Lookup table to answer file stat's without looking on disk.
    */
@@ -25,8 +24,9 @@ class CompilerHost implements ts.CompilerHost {
    */
   private relativeRoots: string[];
 
-  constructor(public inputFiles: string[],
-      readonly options: ts.CompilerOptions, private delegate: ts.CompilerHost) {
+  constructor(
+      public inputFiles: string[], readonly options: ts.CompilerOptions,
+      private delegate: ts.CompilerHost) {
     // Try longest include directories first.
     this.options.rootDirs.sort((a, b) => b.length - a.length);
     this.relativeRoots =
@@ -167,6 +167,9 @@ function runOneBuild(
 
   const compilerHost = new CompilerHost(files, options, compilerHostDelegate);
   const program = ts.createProgram(files, options, compilerHost);
+  console.error('custom xforms', bazelOpts.transformers);
+  const transformers: ts.CustomTransformers =
+      bazelOpts.transformers ? require(bazelOpts.transformers) : undefined;
 
   function isCompilationTarget(sf: ts.SourceFile): boolean {
     return (bazelOpts.compilationTargetSrc.indexOf(sf.fileName) !== -1);
@@ -186,7 +189,8 @@ function runOneBuild(
     return Promise.resolve(false);
   }
   for (const sf of program.getSourceFiles().filter(isCompilationTarget)) {
-    const emitResult = program.emit(sf);
+    const emitResult =
+        program.emit(sf, undefined, undefined, undefined, transformers);
     diagnostics.push(...emitResult.diagnostics);
   }
   if (diagnostics.length > 0) {

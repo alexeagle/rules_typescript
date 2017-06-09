@@ -40,6 +40,8 @@ def _compile_action(ctx, inputs, outputs, config_file_path):
   action_inputs = inputs
   if ctx.file.tsconfig:
     action_inputs += [ctx.file.tsconfig]
+  if ctx.attr.transformers:
+    action_inputs += ctx.attr.transformers.typescript.es5_sources.to_list()
 
   ctx.action(
       inputs=action_inputs,
@@ -114,7 +116,9 @@ def _tsc_wrapped_tsconfig(ctx,
   # We subtract the ".json" from the end before handing to TypeScript because
   # this gives extra error-checking.
   if ctx.file.tsconfig:
-    config["extends"] = "{}/{}".format(workspace_path, ctx.file.tsconfig.path[:-5])
+    config["extends"] = "/".join([workspace_path, ctx.file.tsconfig.path[:-5]])
+  if ctx.attr.transformers:
+    config["bazelOptions"]["transformers"] = "/".join([ctx.attr.transformers.label.package, ctx.attr.transformers.label.name])
 
   ctx.file_action(output=tsconfig_json, content=json_marshal(config))
   return tsconfig_json
@@ -164,6 +168,7 @@ ts_library = rule(
         # internally as well.
         "tsconfig":
             attr.label(allow_files = True, single_file=True),
+        "transformers": attr.label(),
         "_additional_d_ts":
             attr.label_list(),
         "tsc":

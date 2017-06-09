@@ -88,6 +88,11 @@ export interface BazelOptions {
    * "TS1234:regexp". If empty, compilation is expected to succeed.
    */
   expectedDiagnostics: string[];
+
+  /**
+   * FIXME: docs
+   */
+  transformers: string;
 }
 
 export interface ParsedTsConfig {
@@ -118,8 +123,8 @@ export function parseTsconfig(
 
   const bazelOpts: BazelOptions = config.bazelOptions;
   const target = bazelOpts.target;
-  const {options, errors, fileNames} = ts.parseJsonConfigFileContent(
-    config, host, path.dirname(tsconfigFile));
+  const {options, errors, fileNames} =
+      ts.parseJsonConfigFileContent(config, host, path.dirname(tsconfigFile));
   if (errors && errors.length) {
     return [null, errors, {target}];
   }

@@ -78,7 +78,7 @@ else
   fi
 fi
 export RUNFILES
-export NODE_PATH="${RUNFILES}":${RUNFILES}/yarn/installed/node_modules
+export NODE_PATH="${RUNFILES}":${RUNFILES}/yarn/installed/node_modules:bazel-out/local-fastbuild/bin
 
 ARGS=()
 NODE_OPTIONS=()
@@ -89,5 +89,7 @@ for ARG in "${ALL_ARGS[@]}"; do
     *) ARGS+=( "$ARG" )
   esac
 done
+pwd
+echo $NODE_PATH
 
 exec "${RUNFILES}/TEMPLATED_node" "${NODE_OPTIONS[@]}" "${RUNFILES}/TEMPLATED_script_path" "${ARGS[@]}"

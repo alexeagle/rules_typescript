@@ -20,3 +20,9 @@ filegroup(
     srcs = glob(["node_modules/**/*"]),
     visibility = ["//visibility:public"],
 )
+
+load("@io_bazel_rules_typescript//:defs.bzl", "yarn_check")
+yarn_check(
+    name = "yarn_check",
+    yarn_lock = ":yarn.lock",
+)

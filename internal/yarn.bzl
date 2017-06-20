@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install Yarn and run `yarn install` when the user calls yarn_install() from their WORKSPACE.
+"""Install Yarn and run `yarn check` when the user calls yarn_check() from their WORKSPACE.
 
 Yarn is a package manager that downloads dependencies. Yarn is an improvement over the `npm` tool in
 speed and correctness.
 
 We download a specific version of Yarn to ensure a hermetic build.
-Then, using the package.json file supplied by the user, we call `yarn install`
-to create or update a node_modules folder next to the package.json.
+Then, using the yarn.lock file supplied by the user, we call `yarn check`
+to verify the node_modules folder next to the package.json.
 Finally we create a workspace that symlinks to the user's project.
 We name this workspace "npm" so there will be targets like
 @npm//installed:node_modules
@@ -31,23 +31,35 @@ repository, we also need to find some labels under node_modules.
 
 load(":executables.bzl", "get_node")
 
-def _yarn_install_impl(ctx):
-  project_dir = ctx.path(ctx.attr.package_json).dirname
-  ctx.file("yarn_install.sh", """#!/bin/bash
-set -ex
-ROOT=$(dirname $1)
-NODE=$2
-SCRIPT=$3
-(cd $ROOT; $NODE $SCRIPT install)
-""")
-  result = ctx.execute(["./yarn_install.sh",
-                        ctx.path(ctx.attr.package_json),
-                        ctx.path(ctx.attr._node),
-                        ctx.path(ctx.attr._yarn)])
-  if result.return_code > 0:
-    print(result.stdout)
-    print(result.stderr)
+def _yarn_check_impl(ctx):
+  stamp_file = ctx.new_file("/".join([ctx.bin_dir.path, ctx.label.package, ctx.label.name + "_stamp"]))
+  ctx.action(
+      executable = ctx.file._node,
+      arguments = [ctx.file._yarn.path, "check", "--integrity"],
+      inputs = ctx.files._node_modules + ctx.files._yarn_modules + [ctx.file._yarn],
+      outputs = [stamp_file],
+      env = {
+          "NODE_PATH": "external/yarn/node_modules"
+      },
+  )
 
+  return struct(
+      files = set([stamp_file])
+  )
+
+yarn_check = rule(
+    _yarn_check_impl,
+    attrs = {
+        "yarn_lock": attr.label(allow_files=True, single_file=True),
+        "_node_modules": attr.label(
+            default = Label("@npm//installed:node_modules")),
+        "_node": attr.label(default = get_node(), allow_files=True, single_file=True),
+        "_yarn": attr.label(allow_files=True, single_file=True, default = Label("@yarn//:bin/yarn.js")),
+        "_yarn_modules": attr.label(default = Label("@yarn//:node_modules")),
+    },
+)
+
+def _symlink_node_modules_impl(ctx):
   # WORKAROUND for https://github.com/bazelbuild/bazel/issues/374#issuecomment-296217940
   # Bazel does not allow labels to start with `@`, so when installing eg. the `@types/node`
   # module from the @types scoped package, you'll get an error.
@@ -61,21 +73,17 @@ SCRIPT=$3
   # """)
 
   # Instead symlink the root directory from the user's workspace
+  project_dir = ctx.path(ctx.attr.yarn_lock).dirname
   ctx.symlink(project_dir, "installed")
 
-
-_yarn_install = repository_rule(
-    _yarn_install_impl,
-    attrs = {
-        "package_json": attr.label(),
-        "_node": attr.label(default = get_node(), allow_files=True, single_file=True),
-        "_yarn": attr.label(default = Label("@yarn_pkg//:bin/yarn.js")),
-    },
+_symlink_node_modules = repository_rule(
+    _symlink_node_modules_impl,
+    attrs = { "yarn_lock": attr.label() },
 )
 
-def yarn_install(package_json):
+def yarn_repositories(yarn_lock):
     native.new_http_archive(
-        name = "yarn_pkg",
+        name = "yarn",
         urls = [
             "http://mirror.bazel.build/github.com/yarnpkg/yarn/releases/download/v0.22.0/yarn-v0.22.0.tar.gz",
             "https://github.com/yarnpkg/yarn/releases/download/v0.22.0/yarn-v0.22.0.tar.gz",
@@ -84,9 +92,11 @@ def yarn_install(package_json):
         type = "tar.gz",
         build_file_content = """
 package(default_visibility = ["//visibility:public"])
-exports_files(["bin/yarn"])
+exports_files(["bin/yarn", "bin/yarn.js"])
+alias(name = "yarn", actual = ":bin/yarn")
 """,
     )
 
-    _yarn_install(name = "npm", package_json = package_json)
-
+    # This repo is named "npm" since that's the namespace of packages.
+    # See explanation at the top of this file.
+    _symlink_node_modules(name = "npm", yarn_lock = yarn_lock)

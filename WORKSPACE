@@ -14,7 +14,13 @@
 
 workspace(name = "build_bazel_rules_typescript")
 
-load("//:defs.bzl", "node_repositories")
+git_repository(
+    name = "build_bazel_rules_nodejs",
+    remote = "https://github.com/alexeagle/rules_nodejs",
+    commit = "fc36b34",
+)
+
+load("//@build_bazel_rules_nodejs:defs.bzl", "node_repositories")
 
 # Install a hermetic version of node.
 # After this is run, these labels will be available:

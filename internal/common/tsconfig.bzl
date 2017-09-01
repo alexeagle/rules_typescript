@@ -111,8 +111,8 @@ def create_tsconfig(ctx, files, srcs,
       # and builds are faster with the setting on.
       "skipDefaultLibCheck": True,
 
-      # Always produce commonjs modules (might get translated to goog.module).
-      "module": "commonjs",
+      # Always produce AMD modules (might get translated to goog.module).
+      "module": "AMD",
       "moduleResolution": "node",
 
       "outDir": "/".join([workspace_path, outdir_path]),

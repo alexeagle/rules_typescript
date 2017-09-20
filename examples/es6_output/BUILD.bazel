@@ -17,6 +17,9 @@ package(default_visibility = ["//visibility:public"])
 load("//:defs.bzl", "ts_library")
 load(":es6_consumer.bzl", "es6_consumer")
 
+# Test out closure integration
+load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_binary")
+
 ts_library(
     name = "es6_output_lib",
     srcs = glob(["*.ts"]),
@@ -31,4 +34,9 @@ sh_test(
     name = "es6_output_test",
     srcs = ["es6_output_test.sh"],
     data = [":es6_output"],
+)
+
+closure_js_binary(
+    name = "closure",
+    deps = [":es6_output_lib"],
 )

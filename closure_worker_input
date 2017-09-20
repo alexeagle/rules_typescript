@@ -1,0 +1,28 @@
+java -jar ./jscompiler.jar \
+--js_output_file \
+bazel-out/local-fastbuild/bin/examples/es6_output/closure.js \
+--create_source_map \
+bazel-out/local-fastbuild/bin/examples/es6_output/closure.js.map \
+--language_out \
+ECMASCRIPT5 \
+--compilation_level \
+ADVANCED \
+--dependency_mode \
+LOOSE \
+--warning_level \
+VERBOSE \
+--generate_exports \
+--process_closure_primitives \
+--define=goog.json.USE_NATIVE_JSON \
+--define=goog.soy.REQUIRE_STRICT_AUTOESCAPE \
+--hide_warnings_for=closure/goog/base.js \
+--define=goog.DEBUG=false \
+--js_module_root \
+bazel-out/local-fastbuild/bin/external/build_bazel_rules_typescript \
+--js_module_root \
+bazel-out/local-fastbuild/bin \
+--js_module_root \
+external/build_bazel_rules_typescript \
+bazel-out/local-fastbuild/bin/examples/es6_output/examples/es6_output/greeter.js \
+bazel-out/local-fastbuild/bin/examples/es6_output/examples/es6_output/main.js \
+bazel-out/local-fastbuild/bin/examples/es6_output/examples/es6_output/es6_output_lib.externs.js

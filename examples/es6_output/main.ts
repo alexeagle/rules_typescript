@@ -1,3 +1,5 @@
 import {Greeter} from './greeter';
 
-console.log(new Greeter().greet());
+for (let i = 0; i < 100; i++) {
+  console.log(new Greeter(i).greet(i));
+}

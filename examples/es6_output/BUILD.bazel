@@ -16,8 +16,6 @@ package(default_visibility = ["//visibility:public"])
 
 load("//:defs.bzl", "ts_library")
 load(":es6_consumer.bzl", "es6_consumer")
-
-# Test out closure integration
 load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_binary")
 
 ts_library(
@@ -36,7 +34,25 @@ sh_test(
     data = [":es6_output"],
 )
 
+# Test out closure integration
 closure_js_binary(
     name = "closure",
     deps = [":es6_output_lib"],
+    defs = [
+        "--module_resolution=NODE",
+        "--warning_level=QUIET",
+    ],
+    # this is short for no defs, not node fs
+    nodefs = [
+        # TODO(alexeagle): Disable type-based optimizations
+        # until we have tsickle_typed mode enabled
+        "--use_types_for_optimization",
+    ],
+)
+
+# TODO(alexeagle): we should have a protractor e2e test instead
+sh_test(
+    name = "closure_compiler_test",
+    srcs = ["closure_compiler_test.sh"],
+    data = [":closure.js"],
 )

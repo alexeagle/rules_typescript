@@ -2,7 +2,8 @@
 {
     "files.exclude": {
         "**/.git": true,
-        "bazel-*": true
+        "bazel-*": true,
+        "dist": true
     }
 }
 

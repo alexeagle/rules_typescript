@@ -18,4 +18,3 @@ Users should not load files under "/internal"
 """
 load("//internal:build_defs.bzl", "ts_library")
 load("//internal:ts_config.bzl", "ts_config")
-load("//internal:closure.bzl", "patched_closure_repositories")

@@ -226,7 +226,9 @@ export class CompilerHost implements ts.CompilerHost, tsickle.TsickleHost {
    *  allows a string as the first argument to define()"
    */
   amdModuleName(sf: ts.SourceFile): string|undefined {
-    if (this.bazelOpts.compilationTargetSrc.indexOf(sf.fileName) === -1) {
+    // Workaround https://github.com/angular/angular/issues/19422
+    if (this.bazelOpts.compilationTargetSrc.indexOf(sf.fileName) === -1 &&
+        !sf.fileName.match(/\.ng(factory|summary|style)\.ts/)) {
       return undefined;
     }
     // /build/work/bazel-out/local-fastbuild/bin/path/to/file.ts
@@ -234,8 +236,12 @@ export class CompilerHost implements ts.CompilerHost, tsickle.TsickleHost {
     const fileName = this.rootDirsRelative(sf.fileName);
     // path/to/file.ts ->
     // myWorkspace/path/to/file
+    // path/to/file.ts ->
+    // myWorkspace/path/to/file
     return path.join(
-        this.bazelOpts.workspaceName, fileName.replace(/(\.d)?\.tsx?$/, ''));
+      // Workaround https://github.com/angular/angular/issues/19422
+      // this.bazelOpts.workspaceName, 
+      fileName.replace(/(\.d)?\.tsx?$/, ''));
   }
 
   /** Loads a source file from disk (or the cache). */

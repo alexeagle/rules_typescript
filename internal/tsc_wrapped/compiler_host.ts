@@ -285,6 +285,8 @@ export class CompilerHost implements ts.CompilerHost, tsickle.TsickleHost {
       content =
           `/// <amd-module name="${sourceFiles[0].moduleName}" />\n${content}`;
     }
+    // Workaround for cat, otherwise there is no newline at end of sourcemap
+    content += '\n';
     fileName = this.flattenOutDir(fileName);
     if (!this.bazelOpts.es5Mode) {
       // Write ES6 transpiled files to *.closure.js.

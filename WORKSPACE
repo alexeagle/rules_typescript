@@ -30,3 +30,8 @@ load("@build_bazel_rules_nodejs//:defs.bzl", "node_repositories")
 # - The yarn package manager:
 #   @yarn//:yarn
 node_repositories(package_json = ["//:package.json"])
+
+local_repository(
+    name = "proto_example",
+    path = "examples/proto",
+)

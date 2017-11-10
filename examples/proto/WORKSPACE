@@ -1,0 +1,8 @@
+workspace(name = "proto_example")
+
+local_repository(
+    name = "build_bazel_rules_typescript",
+    path = "../..",
+)
+
+

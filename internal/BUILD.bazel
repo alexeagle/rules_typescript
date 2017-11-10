@@ -15,3 +15,15 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["worker_protocol.proto"])
+
+load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary")
+
+nodejs_binary(
+    name = "pbjs",
+    entry_point = "protobufjs/cli/pbjs.js",
+)
+
+nodejs_binary(
+    name = "pbts",
+    entry_point = "protobufjs/cli/pbts.js",
+)

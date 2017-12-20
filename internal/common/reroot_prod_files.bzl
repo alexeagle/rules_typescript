@@ -23,32 +23,28 @@ def reroot_prod_files(ctx):
 
   Returns:
     A file tree containing only production files.
-  """
-  
-  non_rerooted_prod_files = depset()
+  """  
+  rerooted_prod_files = depset()
   for dep in ctx.attr.deps:
     if hasattr(dep, "typescript"):
-      non_rerooted_prod_files += dep.typescript.transitive_es6_sources
+      for es6_source in dep.typescript.transitive_es6_sources:
+        rerooted_prod_file = ctx.actions.declare_file(
+        "%s.prod/%s" % (
+          ctx.label.name,
+          es6_source.short_path.replace(".closure.js", ".js")))
+        ctx.actions.expand_template(
+          output = rerooted_prod_file,
+          template = es6_source,
+          substitutions = {}
+        )
+        rerooted_prod_files += [rerooted_prod_file]
     elif hasattr(dep, "closure_js_library"):
-      non_rerooted_prod_files += dep.closure_js_library.srcs
+      rerooted_prod_files += dep.closure_js_library.srcs
     elif hasattr(dep, "files"):
-      non_rerooted_prod_files += dep.files
+      rerooted_prod_files += dep.files
     else:
       fail(
           ("%s is neither a TypeScript nor a Closure JS library producing rule." % dep.label) +
-          "\nDependencies must be ts_library, ts_declaration, or closure_js_library.")
-
-  rerooted_prod_files = depset()
-  for non_rerooted_prod_file in non_rerooted_prod_files:
-    rerooted_prod_file = ctx.actions.declare_file(
-      "%s.prod/%s" % (
-        ctx.label.name,
-        non_rerooted_prod_file.short_path.replace(".closure.js", ".js")))
-    ctx.actions.expand_template(
-      output = rerooted_prod_file,
-      template = non_rerooted_prod_file,
-      substitutions = {}
-    )
-    rerooted_prod_files += [rerooted_prod_file]
+          "\nDependencies must be ts_library, ts_declaration, or closure_js_library.")    
     
   return rerooted_prod_files

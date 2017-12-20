@@ -12,7 +12,10 @@
         "typescript": ">=2.4.2"
     },
     "devDependencies": {
+        "angular": "^1.6.7",
         "@bazel/ibazel": "^0.2.0",
+        "google-closure-compiler": "^20171112.0.0",
+        "@types/angular": "^1.6.39",
         "@types/jasmine": "^2.8.2",
         "@types/node": "7.0.18",
         "@types/source-map": "^0.5.1",
@@ -26,7 +29,8 @@
     },
     "scripts": {
         "pretest": "webdriver-manager update && bazel build examples/app:all",
-        "test": "concurrently \"bazel run examples/app:devserver\" protractor --kill-others --success first",
+        "test-dev": "concurrently \"bazel run examples/app:devserver\" protractor --kill-others --success first",
+        "test-prod": "concurrently \"bazel run examples/app:prodserver\" protractor --kill-others --success first",
         "skylint": "bazel build @io_bazel//src/tools/skylark/java/com/google/devtools/skylark/skylint:Skylint && find . -type f -name \"*.bzl\" ! -path \"*/node_modules/*\" | xargs $(bazel info bazel-bin)/external/io_bazel/src/tools/skylark/java/com/google/devtools/skylark/skylint/Skylint"
     }
 }

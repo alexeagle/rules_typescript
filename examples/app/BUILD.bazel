@@ -19,25 +19,26 @@ load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_library", "closure
 load("//internal:build_defs.bzl", "closure_ts_binary")
 load("//examples/app:internal_node_module.bzl", "internal_node_module")
 
-STATIC_FILES = [
-    "index.html",
-    ":angular.js",   
-    "//examples/app/hello-world:static-files",
-]
-
 ts_library(
     name = "ts_library",
     srcs = ["main.ts"],
     deps = ["//examples/app/hello-world"],
 )
 
-# The devserver uses RequireJS for module loading so we need to instruct it 
-# that require("angular") commands should load AngularJS from the window.
-internal_node_module(
-    name = "angularjs_shim_requirejs",
-    import_path = "angular",
-    main = "angularjs_shim.requirejs.js",
+# Needed because the devserver only loads static files that appear under this
+# package.
+genrule(
+    name = "angular_js",
+    srcs = ["//:node_modules/angular/angular.js"],
+    outs = ["angular.js"],
+    cmd = "cp $< $@",
 )
+
+STATIC_FILES = [
+    "index.html",
+    ":angular.js",   
+    "//examples/app/hello-world:static-files",
+]
 
 # Create a live-reload enable development server:
 #
@@ -47,12 +48,18 @@ ts_devserver(
     name = "devserver",
     serving_path = "/bundle.js",
     static_files = STATIC_FILES,
-    deps = [":angularjs_shim_requirejs", ":ts_library"],
+    deps = [
+        # The devserver uses RequireJS for module loading so we need to instruct it 
+        # that `require('angular')` should load AngularJS from the window.
+        ":angularjs_shim.requirejs.js",
+        ":ts_library"
+    ],
     entry_module = "build_bazel_rules_typescript/examples/app/main",
 )
 
 # We do not want closure to compile angular.js, and instead will serve angular.min.js.
 # Serving this file makes angular availible on the window as a global variable.
+#
 # @types/angular defines angularjs as a CommonJS module with an import path of 'angular'
 # The shim exports the global variable to make it importable from the import path.
 internal_node_module(
@@ -61,6 +68,7 @@ internal_node_module(
     main = "angularjs_shim.commonjs.js",
 )
 
+# Since we do not process AngularJS as a ts_library, we need to supply our own externs.
 closure_js_library(
     name = "angularjs_externs",
     srcs = ["//:node_modules/google-closure-compiler/contrib/externs/angular-1.6.js"],
@@ -81,22 +89,12 @@ closure_ts_binary(
     ],
 )
 
-# Needed because the devserver only loads static files that appear under this
-# package.
-genrule(
-    name = "angular_js",
-    srcs = ["//:node_modules/angular/angular.js"],
-    outs = ["angular.js"],
-    cmd = "cp $< $@",
-)
-
-# Create a production server to serve the bundle.
+# Create a production server to serve the bundle produced by closure_ts_binary.
 #
 # npm run prodserver
 # ibazel run //examples/angular:devserver
 ts_devserver(
     name = "prodserver",
-    # :bundle.js produced by closure_ts_binary
     static_files = STATIC_FILES + [":bundle.js"],
 )
 

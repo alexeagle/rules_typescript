@@ -2,7 +2,7 @@
 set -e
 
 # should not down-level ES2015 syntax, eg. `class`
-readonly FOO_JS=$(cat $TEST_SRCDIR/build_bazel_rules_typescript/examples/es6_output/es6_output.prod/examples/foo.js)
+readonly FOO_JS=$(cat $TEST_SRCDIR/build_bazel_rules_typescript/examples/es6_output/es6_output.prod/node_modules/build_bazel_rules_typescript/examples/foo.js)
 if [[ "$FOO_JS" != *"class Greeter"* ]]; then
   echo "Expected foo.js to contain 'class Greeter' but was"
   echo "$FOO_JS"
@@ -10,7 +10,7 @@ if [[ "$FOO_JS" != *"class Greeter"* ]]; then
 fi
 
 # should not down-level ES2015 syntax, eg. `class`
-readonly LIBRARY_JS=$(cat $TEST_SRCDIR/build_bazel_rules_typescript/examples/es6_output/es6_output.prod/examples/some_library/library.js)
+readonly LIBRARY_JS=$(cat $TEST_SRCDIR/build_bazel_rules_typescript/examples/es6_output/es6_output.prod/node_modules/build_bazel_rules_typescript/examples/some_library/library.js)
 if [[ "$LIBRARY_JS" != *"export const cool = 1;"* ]]; then
   echo "Expected library.js to contain 'export const cool = 1;' but was"
   echo "$LIBRARY_JS"

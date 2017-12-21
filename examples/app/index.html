@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html ng-app="HelloWorldApp">
   <head>
     <title>ts_devserver example</title>
     <link rel="stylesheet" type="text/css" href="/hello-world/hello-world.css">
@@ -9,9 +9,9 @@
       window.HELLO = 'Hello';
     </script>
     <script src="/angular.js"></script>
+    <script src="/bundle.js"></script>
   </head>
   <body>
     <hello-world world="world"></hello-world>
-    <script src="/bundle.js"></script>
   </body>
 </html>

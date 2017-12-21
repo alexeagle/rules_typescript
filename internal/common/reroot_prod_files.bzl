@@ -29,8 +29,9 @@ def reroot_prod_files(ctx):
     if hasattr(dep, "typescript"):
       for es6_source in dep.typescript.transitive_es6_sources:
         rerooted_prod_file = ctx.actions.declare_file(
-        "%s.prod/%s" % (
+        "%s.prod/node_modules/%s/%s" % (
           ctx.label.name,
+          ctx.workspace_name,
           es6_source.short_path.replace(".closure.js", ".js")))
         ctx.actions.expand_template(
           output = rerooted_prod_file,

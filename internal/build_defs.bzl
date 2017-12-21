@@ -202,6 +202,8 @@ def _reroot_prod_files_impl(ctx):
   for prod_file in rerooted_prod_files:
     if "node_modules/" in prod_file.dirname:
       js_module_roots += [prod_file.dirname[:prod_file.dirname.find('node_modules/')]]
+    elif ".prod/" in prod_file.dirname:
+      js_module_roots += [prod_file.dirname[:prod_file.dirname.find('.prod/') + len('.prod/')]]
   return struct(closure_js_library = struct(srcs = rerooted_prod_files, js_module_roots = js_module_roots))
 
 _reroot_prod_files = rule(

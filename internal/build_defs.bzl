@@ -193,7 +193,7 @@ def _reroot_prod_files_impl(ctx):
   Returns:
     A closure_js_library with the rerooted files.
   """
-  rerooted_prod_files = reroot_prod_files(ctx)
+  rerooted_prod_files = [f for f in reroot_prod_files(ctx) if not f.short_path.endswith("ngsummary.js")]
 
   js_module_roots = depset()
   for dep in ctx.attr.deps:
@@ -201,9 +201,14 @@ def _reroot_prod_files_impl(ctx):
       js_module_roots += dep.closure_js_library.js_module_roots
   for prod_file in rerooted_prod_files:
     if "node_modules/" in prod_file.dirname:
-      js_module_roots += [prod_file.dirname[:prod_file.dirname.find('node_modules/')]]
+      v = prod_file.dirname[:prod_file.dirname.find('node_modules/')]
+      js_module_roots += [v + "node_modules", v]
     elif ".prod/" in prod_file.dirname:
-      js_module_roots += [prod_file.dirname[:prod_file.dirname.find('.prod/') + len('.prod/')]]
+      js_module_roots += [
+        prod_file.dirname[:prod_file.dirname.find('.prod/') + len('.prod/')],
+        prod_file.dirname[:prod_file.dirname.find('.prod/') + len('.prod/')] + "/node_modules"
+      ]
+  js_module_roots = [r for r in js_module_roots if r]
   return struct(closure_js_library = struct(srcs = rerooted_prod_files, js_module_roots = js_module_roots))
 
 _reroot_prod_files = rule(
@@ -211,7 +216,16 @@ _reroot_prod_files = rule(
     implementation = _reroot_prod_files_impl,
 )
 
-def closure_ts_binary(name, deps, **kwargs):
+def closure_ts_binary(name, deps, defs = [], **kwargs):
   rerooted_name = name + "_reroot_prod_files"
   _reroot_prod_files(name = rerooted_name, deps = deps)
-  closure_js_binary(name = name, deps = [":" + rerooted_name], **kwargs)
+  defs = defs + [
+        "--jscomp_off=checkTypes",
+        "--jscomp_off=jsdocMissingType",
+        "--jscomp_off=unusedLocalVariables",
+        "--jscomp_off=misplacedTypeAnnotation",
+        "--jscomp_off=extraRequire",
+        "--package_json_entry_names=es2015",
+        "--js_module_root=node_modules",
+  ]
+  closure_js_binary(name = name, defs = defs, deps = [":" + rerooted_name], **kwargs)

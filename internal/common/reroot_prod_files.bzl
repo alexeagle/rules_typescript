@@ -23,16 +23,20 @@ def reroot_prod_files(ctx):
 
   Returns:
     A file tree containing only production files.
-  """  
+  """
   rerooted_prod_files = depset()
   for dep in ctx.attr.deps:
     if hasattr(dep, "typescript"):
       for es6_source in dep.typescript.transitive_es6_sources:
-        rerooted_prod_file = ctx.actions.declare_file(
-        "%s.prod/node_modules/%s/%s" % (
-          ctx.label.name,
-          ctx.workspace_name,
-          es6_source.short_path.replace(".closure.js", ".js")))
+        workspace = ""
+        if not es6_source.owner.workspace_root:
+          workspace = ctx.workspace_name
+        rerooted_prod_file = ctx.actions.declare_file("/".join([f for f in [
+          ctx.label.name + ".prod",
+          "node_modules",
+          workspace,
+          es6_source.short_path.replace("../", "").replace(".closure.js", ".js")
+        ] if f]))
         ctx.actions.expand_template(
           output = rerooted_prod_file,
           template = es6_source,

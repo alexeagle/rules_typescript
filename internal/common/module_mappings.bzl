@@ -28,16 +28,16 @@ def _get_deps(attrs, names):
           for d in getattr(attrs, n)]
 
 # Traverse 'srcs' in addition so that we can go across a genrule
-_MODULE_MAPPINGS_DEPS_NAMES = depset(["deps", "srcs", "_helpers"]
-).to_list()
+_MODULE_MAPPINGS_DEPS_NAMES = (["deps", "srcs", "_helpers"]
+)
 
-_DEBUG = False
+_DEBUG = True
 
 def debug(msg, values=()):
   if _DEBUG:
     print(msg % values)
 
-def get_module_mappings(label, attrs, srcs = [], workspace_name = None, mappings_attr = "es6_module_mappings"):
+def get_module_mappings(label, attrs, workspace_name, srcs = [], mappings_attr = "es6_module_mappings"):
   """Returns the module_mappings from the given attrs.
 
   Collects a {module_name - module_root} hash from all transitive dependencies,
@@ -55,6 +55,8 @@ def get_module_mappings(label, attrs, srcs = [], workspace_name = None, mappings
   Returns:
     the module_mappings from the given attrs.
   """
+  if len(workspace_name) == 0:
+    fail("workspace_name cannot be empty")
   mappings = dict()
   all_deps =  _get_deps(attrs, names = _MODULE_MAPPINGS_DEPS_NAMES)
   for dep in all_deps:
@@ -70,11 +72,8 @@ def get_module_mappings(label, attrs, srcs = [], workspace_name = None, mappings
     mn = attrs.module_name
     if not mn:
       mn = label.name
-    mr = label.package
-    if workspace_name:
-      mr = "%s/%s" % (workspace_name, mr)
-    elif label.workspace_root:
-      mr = "%s/%s" % (label.workspace_root, mr)
+    mr = "%s/%s" % (workspace_name, label.package)
+
     if attrs.module_root and attrs.module_root != ".":
       mr = "%s/%s" % (mr, attrs.module_root)
       if attrs.module_root.endswith(".ts"):
@@ -98,7 +97,18 @@ def get_module_mappings(label, attrs, srcs = [], workspace_name = None, mappings
   return mappings
 
 def _module_mappings_aspect_impl(target, ctx):
-  mappings = get_module_mappings(target.label, ctx.rule.attr)
+
+  if target.label.workspace_root:
+    # We need the workspace_name for the target being visited.
+    # Skylark doesn't have this - instead they have a workspace_root
+    # which looks like "external/repo_name" - so grab the second path segment.
+    # TODO(alexeagle): investigate a better way to get the workspace name
+    workspace_name = target.label.workspace_root.split("/")[1]
+  else:
+    workspace_name = ctx.workspace_name
+
+  mappings = get_module_mappings(target.label, ctx.rule.attr,
+      workspace_name = workspace_name)
   return struct(es6_module_mappings = mappings)
 
 module_mappings_aspect = aspect(
@@ -118,6 +128,7 @@ def _module_mappings_runtime_aspect_impl(target, ctx):
     workspace_name = target.label.workspace_root.split("/")[1]
   else:
     workspace_name = ctx.workspace_name
+
   mappings = get_module_mappings(target.label, ctx.rule.attr,
       workspace_name = workspace_name,
       mappings_attr = "runfiles_module_mappings")

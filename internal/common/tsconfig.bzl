@@ -77,19 +77,30 @@ def create_tsconfig(ctx, files, srcs,
           "*"] if p]))
 
     module_roots = {
-        "*": node_modules_mappings,
+        "*": base_path_mappings + node_modules_mappings,
         ctx.workspace_name + "/*": base_path_mappings,
     }
-  module_mappings = get_module_mappings(ctx.label, ctx.attr, srcs = srcs)
+  module_mappings = get_module_mappings(ctx.label, ctx.attr, srcs = srcs,
+      workspace_name = ctx.workspace_name)
 
   for name, path in module_mappings.items():
+    if path.startswith(ctx.workspace_name + "/"):
+      relative_path = "/".join(path.split("/")[1:])
+    else:
+      relative_path = "external/" + path
     # Each module name maps to the immediate path, to resolve "index(.d).ts",
     # or module mappings that directly point to files (like index.d.ts).
-    module_roots[name] = ["%s%s" % (p, path.replace(".d.ts", "")) for p in module_path_prefixes]
+    module_roots[name] = [
+        "%s%s" % (p, relative_path.replace(".d.ts", ""))
+        for p in module_path_prefixes
+    ]
     if not path.endswith(".d.ts"):
       # If not just mapping to a single .d.ts file, include a path glob that
       # maps the entire module root.
-      module_roots["{}/*".format(name)] = ["%s%s/*" % (p, path) for p in module_path_prefixes]
+      module_roots["{}/*".format(name)] = [
+          "%s%s/*" % (p, relative_path)
+          for p in module_path_prefixes
+      ]
 
   # Options for running the TypeScript compiler under Bazel.
   # See javascript/typescript/compiler/tsc_wrapped.ts:BazelOptions.
@@ -128,7 +139,6 @@ def create_tsconfig(ctx, files, srcs,
       # Do not type-check the lib.*.d.ts.
       # We think this shouldn't be necessary but haven't figured out why yet
       # and builds are faster with the setting on.
-      # See http://b/30709121
       "skipDefaultLibCheck": True,
 
       "moduleResolution": "node",

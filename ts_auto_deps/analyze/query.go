@@ -128,6 +128,11 @@ func (t *resolvedTarget) srcs() ([]string, error) {
 }
 
 func (t *resolvedTarget) deps() []string {
+	//deps := listAttribute(t.rule, "deps")
+	//for i, dep := range deps {
+	///		deps[i] = edit.ShortenLabel(dep, "")
+	//}
+	//return deps
 	return listAttribute(t.rule, "deps")
 }
 
@@ -308,7 +313,7 @@ func redirectedLabel(target *appb.Rule) string {
 	}
 	// No 'taze-import:' tag was present on the target so no redirects need
 	// to occur.
-	return edit.ShortenLabel(target.GetName(), "")
+	return target.GetName()
 }
 
 // sources creates an array of all sources listed in the 'srcs' attribute
@@ -383,6 +388,7 @@ func (a *Analyzer) generateReport(target *resolvedTarget) (*arpb.DependencyRepor
 				continue addingImports
 			} else {
 				for _, dep := range target.deps() {
+					fmt.Printf("generateReport: dep %s import %v\n", dep, i)
 					if dep == i.knownTarget {
 						usedDeps[dep] = true
 						report.NecessaryDependency = append(report.NecessaryDependency, i.knownTarget)

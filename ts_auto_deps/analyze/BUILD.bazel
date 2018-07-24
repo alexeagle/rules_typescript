@@ -1,0 +1,31 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "imports.go",
+        "query.go",
+    ],
+    importpath = "github.com/bazelbuild/rules_typescript/ts_auto_deps/analyze",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//ts_auto_deps/proto:analyze_result_go_proto",
+        "@com_github_bazelbuild_buildtools//build_proto:go_default_library",
+        "@com_github_bazelbuild_buildtools//edit:go_default_library",
+        "@com_github_golang_protobuf//proto:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "imports_test.go",
+        "query_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//ts_auto_deps/proto:analyze_result_go_proto",
+        "@com_github_bazelbuild_buildtools//build_proto:go_default_library",
+        "@com_github_golang_protobuf//proto:go_default_library",
+    ],
+)

@@ -15,12 +15,13 @@ import (
 	"syscall"
 	"time"
 
-
 	"io/ioutil"
-	"github.com/golang/protobuf/proto"
+
 	"github.com/bazelbuild/buildtools/build"
 	"github.com/bazelbuild/buildtools/edit"
 	"github.com/bazelbuild/rules_typescript/ts_auto_deps/analyze"
+	"github.com/bazelbuild/rules_typescript/ts_auto_deps/workspace"
+	"github.com/golang/protobuf/proto"
 
 	arpb "github.com/bazel_rules/rules_typescript/analyze_result_go_proto"
 )
@@ -63,41 +64,6 @@ type Updater struct {
 	updateComments           bool
 	blazeAnalyze             BlazeAnalyzer
 	updateFile               UpdateFile
-}
-
-
-const (
-	workspace = "WORKSPACE"
-)
-
-// google3Root finds the closest google3 root from p.
-func google3Root(p string) (string, error) {
-	p, err := filepath.Abs(p)
-	if err != nil {
-		return "", fmt.Errorf("unable to determine google3 root from %s: %v", p, err)
-	}
-
-	for root := filepath.Dir(p); root != "." && root != "/"; root = filepath.Dir(root) {
-		fmt.Println(root)
-		_, err := os.Stat(filepath.Join(root, workspace))
-		if err != nil {
-			if os.IsNotExist(err) {
-				// WORKSPACE was not found in this directory, keep looking.
-				continue
-			}
-			// The error was something more serious than a "not exists" error.
-			return "", err
-		}
-		return root, nil
-	}
-	return "", fmt.Errorf("unable to determine google3 root, no 'google3' in %s", p)
-
-	// for step := p; step != "/" && step != "."; step = filepath.Dir(step) {
-	// 	if filepath.Base(step) == "google3" {
-	// 		return step, nil
-	// 	}
-	// }
-	// return "", fmt.Errorf("unable to determine google3 root, no 'google3' in %s", p)
 }
 
 func attrTruthy(r *build.Rule, attr string) bool {
@@ -208,15 +174,15 @@ func isatty(fd int) bool {
 }
 
 // readBUILD loads the BUILD file, if present, or returns a new empty one.
-// google3Root must be an absolute path and buildFilePath is interpreted as
-// relative to CWD, and must be underneath google3Root.
-func readBUILD(ctx context.Context, google3Root, buildFilePath string) (*build.File, error) {
-	// Relativize the absolute build path so that buildFilePath is definitely below google3Root.
+// workspaceRoot must be an absolute path and buildFilePath is interpreted as
+// relative to CWD, and must be underneath workspaceRoot.
+func readBUILD(ctx context.Context, workspaceRoot, buildFilePath string) (*build.File, error) {
+	// Relativize the absolute build path so that buildFilePath is definitely below workspaceRoot.
 	absPath, err := filepath.Abs(buildFilePath)
 	if err != nil {
 		return nil, err
 	}
-	g3Path, err := filepath.Rel(google3Root, absPath)
+	g3Path, err := filepath.Rel(workspaceRoot, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve google3 relative path: %s", err)
 	}
@@ -437,7 +403,7 @@ func (upd *Updater) UpdateBUILD(ctx context.Context, path string, isRoot bool) (
 		return false, err
 	}
 	buildFilePath := filepath.Join(path, "BUILD")
-	g3root, err := google3Root(buildFilePath)
+	g3root, err := workspace.Root(buildFilePath)
 	if err != nil {
 		return false, err
 	}
@@ -475,7 +441,6 @@ func (upd *Updater) UpdateBUILD(ctx context.Context, path string, isRoot bool) (
 	if err != nil {
 		return false, err
 	}
-
 
 	infof("Updating sources")
 	changedFirstPass = updateSources(bld, srcs) || changedFirstPass
@@ -559,6 +524,9 @@ func hasTazeEnabled(bld *build.File) bool {
 	return true
 }
 
+func blazeBinary() string {
+	return "bazel"
+}
 
 // QueryBasedBlazeAnalyze uses blaze query to analyze targets. It is available under a flag or
 // an environment variable on engineer's workstations.
@@ -566,7 +534,11 @@ func QueryBasedBlazeAnalyze(buildFilePath string, args []string) ([]byte, []byte
 	// The first member of args is the '--analysis_output=PROTO' flag. Remove
 	// this flag to get only the targets.
 	targets := args[1:]
-	reports, err := analyze.New(&analyze.QueryBasedTargetLoader{}).Analyze(buildFilePath, targets)
+	root, err := workspace.Root(buildFilePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	reports, err := analyze.New(analyze.NewQueryBasedTargetLoader(root, blazeBinary())).Analyze(buildFilePath, targets)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -799,7 +771,7 @@ func removeUnusedLoad(bld *build.File, kind string) {
 			// a load statement without actually loaded symbols, skip
 			continue
 		}
-		if load.Module.Value != "//javascript/typescript:build_defs.bzl" && load.Module.Value != "//javascript/angular2:build_defs.bzl" && load.Module.Value != "//javascript/angular2:ng_module.bzl" {
+		if load.Module.Value != "@build_bazel_rules_typescript//:defs.bzl" && load.Module.Value != "//javascript/angular2:build_defs.bzl" && load.Module.Value != "//javascript/angular2:ng_module.bzl" {
 			stmt = append(stmt, load)
 			continue
 		}
@@ -847,7 +819,7 @@ func setLibraryRuleKinds(ctx context.Context, buildFilePath string, bld *build.F
 	if changed {
 		bld.Stmt = edit.InsertLoad(bld.Stmt, "//javascript/angular2:build_defs.bzl",
 			[]string{"ng_module"}, []string{"ng_module"})
-		bld.Stmt = edit.InsertLoad(bld.Stmt, "//javascript/typescript:build_defs.bzl",
+		bld.Stmt = edit.InsertLoad(bld.Stmt, "@build_bazel_rules_typescript//:defs.bzl",
 			[]string{"ts_library"}, []string{"ts_library"})
 		removeUnusedLoad(bld, "ts_library")
 		removeUnusedLoad(bld, "ng_module")
@@ -950,7 +922,7 @@ func getOrCreateRule(bld *build.File, ruleName, ruleKind string, rt ruleType) *b
 	}
 
 	loadArgs := []string{ruleKind}
-	bld.Stmt = edit.InsertLoad(bld.Stmt, "//javascript/typescript:build_defs.bzl", loadArgs, loadArgs)
+	bld.Stmt = edit.InsertLoad(bld.Stmt, "@build_bazel_rules_typescript//:defs.bzl", loadArgs, loadArgs)
 
 	r := &build.Rule{&build.CallExpr{X: &build.Ident{Name: ruleKind}}, ""}
 	// Rename to *_ts if there's a name collision. This leaves open a collision with another rule
@@ -968,6 +940,11 @@ func getOrCreateRule(bld *build.File, ruleName, ruleKind string, rt ruleType) *b
 		}
 	}
 	r.SetAttr("name", &build.StringExpr{Value: ruleName})
+	r.SetAttr("visibility", &build.ListExpr{
+		List: []build.Expr{
+			&build.StringExpr{Value: "//:__subpackages__"},
+		},
+	})
 	if rt == ruleTypeTest || rt == ruleTypeTestSupport {
 		r.SetAttr("testonly", &build.Ident{Name: "True"})
 	}
@@ -1047,7 +1024,7 @@ func ResolvePackages(paths []string) error {
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %v", err)
 			}
-			g3root, err := google3Root(wd)
+			g3root, err := workspace.Root(wd)
 			if err != nil {
 				return fmt.Errorf("failed to find google3 root under %q: %v", wd, err)
 			}
@@ -1062,21 +1039,21 @@ func ResolvePackages(paths []string) error {
 // findBUILDFile searches for the closest parent BUILD file above pkg. It
 // returns the parsed BUILD file, or an error if none can be found.
 func findBUILDFile(ctx context.Context, pkgToBUILD map[string]*build.File,
-	google3Root string, packagePath string) (*build.File, error) {
+	workspaceRoot string, packagePath string) (*build.File, error) {
 	if packagePath == "." || packagePath == "/" {
 		return nil, fmt.Errorf("no ancestor BUILD file found")
 	}
 	if bld, ok := pkgToBUILD[packagePath]; ok {
 		return bld, nil
 	}
-	buildPath := filepath.Join(google3Root, packagePath, "BUILD")
+	buildPath := filepath.Join(workspaceRoot, packagePath, "BUILD")
 	_, err := os.Stat(buildPath)
 	var bld *build.File
 	if err == nil {
-		bld, err = readBUILD(ctx, google3Root, buildPath)
+		bld, err = readBUILD(ctx, workspaceRoot, buildPath)
 	} else if os.IsNotExist(err) {
 		// Recursively search parent package and cache its location below if found.
-		bld, err = findBUILDFile(ctx, pkgToBUILD, google3Root, filepath.Dir(packagePath))
+		bld, err = findBUILDFile(ctx, pkgToBUILD, workspaceRoot, filepath.Dir(packagePath))
 	} else {
 		return nil, err
 	}

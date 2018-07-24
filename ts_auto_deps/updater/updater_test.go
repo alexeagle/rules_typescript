@@ -11,6 +11,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"google3/testing/gobase/googletest"
 	"github.com/bazelbuild/buildtools/build"
+	"github.com/bazelbuild/rules_typescript/ts_auto_deps/workspace"
 
 	arpb "github.com/bazel_rules/rules_typescript/analyze_result_go_proto"
 )
@@ -43,7 +44,7 @@ ts_library(name = 'a', srcs = ['b.ts'])
 }
 
 func TestGoogle3Root(t *testing.T) {
-	r, err := google3Root("a/google3/b/c")
+	r, err := workspace.Root("a/google3/b/c")
 	if err != nil {
 		t.Error(err)
 	}

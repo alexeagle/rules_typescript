@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"fmt"
 	"io/ioutil"
 	"path/filepath"
 	"regexp"
@@ -31,9 +32,9 @@ func (i *tazeImport) resolvedPath() string {
 	if strings.HasPrefix(i.importPath, "./") || strings.HasPrefix(i.importPath, "../") {
 		// If the import is relative to the source location, use the source
 		// location to form a "canonical" path from the root.
-		return filepath.Clean(filepath.Join(filepath.Dir(i.location.sourcePath), i.importPath))
-	} else if trim := strings.TrimPrefix(i.importPath, "google3/"); trim != i.importPath {
-		return trim
+		x := filepath.Clean(filepath.Join(filepath.Dir(i.location.sourcePath), i.importPath))
+		fmt.Println(x)
+		return x
 	}
 	// The import is an absolute import and therefore does not have a definite
 	// resolved path.
@@ -42,7 +43,7 @@ func (i *tazeImport) resolvedPath() string {
 
 // sourceLocation points to a position in a source file.
 type sourceLocation struct {
-	// google3 relative source path.
+	// Workspace root relative source path.
 	sourcePath string
 	// offset and length are byte offsets, line is the 1-indexed source line (considering only \n as breaks).
 	offset, length, line int

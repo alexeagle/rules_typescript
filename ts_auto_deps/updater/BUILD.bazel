@@ -11,6 +11,7 @@ go_library(
     deps = [
         "//ts_auto_deps/analyze:go_default_library",
         "//ts_auto_deps/proto:analyze_result_go_proto",
+        "//ts_auto_deps/workspace:go_default_library",
         "@com_github_bazelbuild_buildtools//build:go_default_library",
         "@com_github_bazelbuild_buildtools//edit:go_default_library",
         "@com_github_golang_protobuf//proto:go_default_library",
@@ -23,6 +24,7 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//ts_auto_deps/proto:analyze_result_go_proto",
+        "//ts_auto_deps/workspace:go_default_library",
         "@com_github_bazelbuild_buildtools//build:go_default_library",
         "@com_github_golang_protobuf//proto:go_default_library",
     ],

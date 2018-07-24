@@ -11,8 +11,10 @@ import (
 	"strings"
 
 	"log"
-	"github.com/golang/protobuf/proto"
+
 	"github.com/bazelbuild/buildtools/edit"
+	"github.com/bazelbuild/rules_typescript/ts_auto_deps/workspace"
+	"github.com/golang/protobuf/proto"
 
 	arpb "github.com/bazel_rules/rules_typescript/analyze_result_go_proto"
 	appb "github.com/bazelbuild/buildtools/build_proto"
@@ -33,10 +35,7 @@ var (
 
 	// commonModuleNames are a remapping of particular org names to different
 	// names in google3.
-	commonModuleNames = map[string]string{
-		"@angular":           "angular2",
-		"@angular2-material": "angular2_material",
-	}
+	commonModuleNames = map[string]string{}
 
 	extensions = []string{
 		// '.d.ts' must come before '.ts' to completely remove the '.d.ts'
@@ -88,7 +87,7 @@ func New(loader TargetLoader) *Analyzer {
 // dir is the directory that taze should execute in. Must be a sub-directory
 // of google3.
 func (a *Analyzer) Analyze(dir string, labels []string) ([]*arpb.DependencyReport, error) {
-	root, err := workspaceRoot(dir)
+	root, err := workspace.Root(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -96,11 +95,12 @@ func (a *Analyzer) Analyze(dir string, labels []string) ([]*arpb.DependencyRepor
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println(labels)
 	resolved, err := a.resolveImportsForTargets(root, targets)
 	if err != nil {
 		return nil, err
 	}
-	return generateReports(labels, resolved)
+	return a.generateReports(labels, resolved)
 }
 
 // resolvedTarget represents a Blaze target and all resolved information.
@@ -129,6 +129,20 @@ func (t *resolvedTarget) srcs() ([]string, error) {
 
 func (t *resolvedTarget) deps() []string {
 	return listAttribute(t.rule, "deps")
+}
+
+// provides returns whether the resolved target can provide the path provided.
+func (t *resolvedTarget) provides(path string) bool {
+	srcs, err := t.srcs()
+	if err != nil {
+		return false
+	}
+	for _, src := range srcs {
+		if src == path {
+			return true
+		}
+	}
+	return false
 }
 
 // newTarget constructs a new target instance from a loaded rule.
@@ -201,10 +215,16 @@ func (a *Analyzer) resolveImportsForTargets(root string, allTargets map[string]*
 // for imports without known targets.
 func (a *Analyzer) resolveImports(root string, targets map[string]*resolvedTarget) error {
 	var paths []string
-	needingResolution := make(map[string]*tazeImport)
+	needingResolution := make(map[string][]*tazeImport)
 	for _, target := range targets {
 		for _, imports := range target.imports {
 			for _, imp := range imports {
+				resolvedPath := imp.resolvedPath()
+				// TODO(jdhamlik): Handle .d.ts and .tsx files.
+				if target.provides(resolvedPath + ".ts") {
+					imp.knownTarget = target.label
+					continue
+				}
 				d, err := a.findRuleProvidingImport(target.dependencies, imp)
 				if err != nil {
 					return err
@@ -213,8 +233,8 @@ func (a *Analyzer) resolveImports(root string, targets map[string]*resolvedTarge
 					// A target providing the import was not found on the
 					// existing dependencies or in a comment. Use other
 					// heuristics.
-					paths = append(paths, imp.importPath)
-					needingResolution[imp.importPath] = imp
+					paths = append(paths, resolvedPath)
+					needingResolution[resolvedPath] = append(needingResolution[resolvedPath], imp)
 					continue
 				}
 				imp.knownTarget = d
@@ -224,13 +244,15 @@ func (a *Analyzer) resolveImports(root string, targets map[string]*resolvedTarge
 	if len(needingResolution) == 0 {
 		return nil
 	}
-	ts, err := a.loader.LoadImportPaths(root, paths)
+	res, err := a.loader.LoadImportPaths(root, paths)
 	if err != nil {
 		return err
 	}
-	for p, i := range needingResolution {
-		if target, ok := ts[p]; ok {
-			i.knownTarget = redirectedLabel(target)
+	for p, imports := range needingResolution {
+		if target, ok := res[p]; ok {
+			for _, imp := range imports {
+				imp.knownTarget = redirectedLabel(target)
+			}
 		}
 	}
 	return nil
@@ -289,22 +311,6 @@ func redirectedLabel(target *appb.Rule) string {
 	return edit.ShortenLabel(target.GetName(), "")
 }
 
-// workspaceRoot finds the farthest google3 root from the provided directory.
-func workspaceRoot(p string) (string, error) {
-	// TODO(jdhamlik): Make an open-source version which uses WORKSPACE files.
-	p, err := filepath.Abs(p)
-	if err != nil {
-		return "", fmt.Errorf("unable to determine google3 root from %s: %v", p, err)
-	}
-	steps := strings.Split(p, string(filepath.Separator))
-	for i, step := range steps {
-		if step == "google3" {
-			return string(filepath.Separator) + filepath.Join(steps[:i+1]...), nil
-		}
-	}
-	return "", fmt.Errorf("unable to determine google3 root: no 'google3' in %s", p)
-}
-
 // sources creates an array of all sources listed in the 'srcs' attribute
 // on each target in targets.
 func sources(target *appb.Rule) ([]string, error) {
@@ -321,15 +327,16 @@ func sources(target *appb.Rule) ([]string, error) {
 }
 
 // generateReports generates reports for each label in labels.
-func generateReports(labels []string, targets map[string]*resolvedTarget) ([]*arpb.DependencyReport, error) {
+func (a *Analyzer) generateReports(labels []string, targets map[string]*resolvedTarget) ([]*arpb.DependencyReport, error) {
 	var reports []*arpb.DependencyReport
 	for _, label := range labels {
+		fmt.Println(targets)
 		target, ok := targets[label]
 		if !ok {
 			// This case should never happen.
 			log.Fatalf("target %s no longer loaded", label)
 		}
-		report, err := generateReport(target)
+		report, err := a.generateReport(target)
 		if err != nil {
 			return nil, err
 		}
@@ -348,7 +355,7 @@ func generateReports(labels []string, targets map[string]*resolvedTarget) ([]*ar
 // Missing source files detected during import resolution are added to the
 // reports. Dependencies which were present on the initial target but are not
 // required are added to the unnecessary dependency array.
-func generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
+func (a *Analyzer) generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
 	usedDeps := make(map[string]bool)
 	report := &arpb.DependencyReport{
 		Rule: proto.String(target.label),
@@ -360,6 +367,9 @@ func generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
 				// The import could not be resolved into a target. A taze
 				// comment needs to be added to the source by the user.
 				if strings.HasPrefix(i.importPath, "goog:") {
+					// This feedback needs to be phrased this way since the
+					// updater.go relies on parsing the feedback strings to
+					// determine which 'goog:' imports to add.
 					report.Feedback = append(report.Feedback,
 						fmt.Sprintf(
 							"ERROR: %s:%d:%d: missing comment for 'goog:' import, "+
@@ -368,7 +378,6 @@ func generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
 							i.location.sourcePath, i.location.line, i.location.offset, i.importPath))
 				}
 				report.UnresolvedImport = append(report.UnresolvedImport, i.resolvedPath())
-				report.Successful = proto.Bool(false)
 			} else if i.knownTarget == target.label {
 				// The knownTarget for an import is the target it is a member of.
 				continue addingImports
@@ -388,8 +397,22 @@ func generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
 		}
 	}
 	report.MissingSourceFile = target.missingSources
+
+	var unusedDeps []string
 	for _, dep := range target.deps() {
 		if _, ok := usedDeps[dep]; !ok {
+			unusedDeps = append(unusedDeps, dep)
+		}
+	}
+	// Check if the unused deps are TypeScript rules. Only report non-
+	// TypeScript rules as unnecessary deps.
+	res, err := a.loader.LoadLabels(unusedDeps)
+	if err != nil {
+		return nil, err
+	}
+	for _, dep := range unusedDeps {
+		target := res[dep]
+		if c := target.GetRuleClass(); isTypeScriptRule(c) {
 			report.UnnecessaryDependency = append(report.UnnecessaryDependency, dep)
 		}
 	}
@@ -400,8 +423,8 @@ func generateReport(target *resolvedTarget) (*arpb.DependencyReport, error) {
 // provided target. For example, a target '//foo/bar' and a src 'foo/bar/baz.ts'
 // would result in a relative path label of '//foo/bar:baz.ts'.
 func relativePathLabel(label, src string) string {
-	_, p, _ := edit.ParseLabel(label)
-	return fmt.Sprintf("//%s:%s", p, strings.TrimPrefix(src, p+"/"))
+	_, pkg, _ := edit.ParseLabel(label)
+	return fmt.Sprintf("//%s:%s", pkg, strings.TrimPrefix(src, pkg+"/"))
 }
 
 // listAttribute retrieves the attribute from target with name.
@@ -546,9 +569,43 @@ func (q *QueryBasedTargetLoader) LoadImportPaths(root string, paths []string) (m
 			remainingImportPaths = append(remainingImportPaths, path)
 		}
 	}
-	// TODO(jdhamlik): Add support for google3 rooted imports that are not
-	// prefixed with 'google3/'.
-	if err := q.resolveImportsInCommonLocations(results, remainingImportPaths); err != nil {
+	var potentialCommonImports []string
+	// Attempt to locate the file rooted in the workspace even though it isn't
+	// prefixed by 'google3/'.
+	for _, imp := range remainingImportPaths {
+		path := imp
+		ext := filepath.Ext(path)
+		if ext == ".ngsummary" || ext == ".ngfactory" {
+			path = strings.TrimSuffix(path, ext)
+		}
+		res, err := q.batchQuery([]string{path + ".ts", path + ".d.ts", path + ".tsx"})
+		if err != nil {
+			if err.Error() != "exit status 7" {
+				// The error is something other than "targets not found."
+				return nil, err
+			}
+			// No targets were found, fallback to searching common imports.
+			potentialCommonImports = append(potentialCommonImports, imp)
+			continue
+		}
+		if len(res.GetTarget()) > 0 {
+			t, o, err := q.resultObject(res.GetTarget()[0])
+			if err != nil {
+				return nil, err
+			}
+			if desired := appb.Target_SOURCE_FILE; t != desired {
+				return nil, fmt.Errorf("label %q included object of type %q instead of %q", o.GetName(), t, desired)
+			}
+			target, err := q.loadFileLabel(o.GetName())
+			if err != nil {
+				return nil, err
+			}
+			results[imp] = target
+			continue
+		}
+		potentialCommonImports = append(potentialCommonImports, imp)
+	}
+	if err := q.resolveImportsInCommonLocations(results, potentialCommonImports); err != nil {
 		return nil, err
 	}
 	return results, nil
@@ -563,11 +620,18 @@ func (q *QueryBasedTargetLoader) loadFileLabel(fileLabel string) (*appb.Rule, er
 	if err != nil {
 		return nil, err
 	}
-	targets := r.GetTarget()
-	if len(targets) < 1 {
-		return nil, fmt.Errorf("failed to resolved a target for file label %q", fileLabel)
+	for _, target := range r.GetTarget() {
+		rule := target.GetRule()
+		for _, src := range listAttribute(rule, "srcs") {
+			_, _, path := edit.ParseLabel(src)
+			// Return the first rule which has a source file exactly matching
+			// the requested file path.
+			if path == file {
+				return rule, nil
+			}
+		}
 	}
-	return targets[0].GetRule(), nil
+	return nil, fmt.Errorf("failed to resolved a target for file label %q", fileLabel)
 }
 
 // searchCommonLocations searches through common locations like third_party to

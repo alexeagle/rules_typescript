@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 
-
 	"github.com/bazelbuild/rules_typescript/ts_auto_deps/updater"
 )
 
@@ -37,8 +36,6 @@ BUILD rule (ts_library or ts_declaration).
 If there is no matching BUILD rule, or no BUILD file, taze will create either.
 
 taze also updates BUILD rule dependencies ('deps') based on the source imports.
-
-See go/typescript/taze for more documentation.
 
 Flags:
 `, os.Args[0])

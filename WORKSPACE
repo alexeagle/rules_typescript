@@ -19,7 +19,10 @@ load(
     "rules_typescript_dependencies",
     "rules_typescript_dev_dependencies",
 )
-
+local_repository(
+    name = "build_bazel_rules_nodejs",
+    path = "../rules_nodejs",
+)
 rules_typescript_dependencies()
 rules_typescript_dev_dependencies()
 

@@ -124,12 +124,12 @@ ts_proto_library = rule(
             If not specified, the name will match the target's name.""",
         ),
         "_pbjs": attr.label(
-            default = Label("//internal/protobufjs:pbjs"),
+            default = Label("@build_bazel_rules_typescript_protobufs_compiletime_deps//node_modules/protobufjs:pbjs"),
             executable = True,
             cfg = "host",
         ),
         "_pbts": attr.label(
-            default = Label("//internal/protobufjs:pbts"),
+            default = Label("@build_bazel_rules_typescript_protobufs_compiletime_deps//node_modules/protobufjs:pbts"),
             executable = True,
             cfg = "host",
         ),

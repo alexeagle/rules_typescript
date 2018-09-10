@@ -25,7 +25,7 @@ exports_files([
 ])
 
 load("//:defs.bzl", "ts_library")
-load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary", "jasmine_node_test")
+load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary", "jasmine_node_test", "npm_package")
 
 # Vanilla typescript compiler: run the tsc.js binary distributed by TypeScript
 nodejs_binary(
@@ -87,4 +87,23 @@ jasmine_node_test(
     name = "test",
     srcs = [],
     deps = [":test_lib"],
+)
+
+genrule(
+    name = "license_copy",
+    srcs = ["//:LICENSE"],
+    outs = ["LICENSE"],
+    cmd = "cp $< $@",
+)
+
+npm_package(
+    name = "npm_package",
+    srcs = [
+        "README.md",
+        "package.json",
+    ],
+    deps = [
+        ":license_copy",
+        ":tsc_wrapped",
+    ],
 )

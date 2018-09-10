@@ -135,7 +135,7 @@ module.exports = function(config) {
     // list of karma plugins
     plugins: [
       'karma-*',
-      'karma-concat-js',
+      '@bazel/karma',
       'karma-sourcemap-loader',
       'karma-chrome-launcher',
       'karma-firefox-launcher',

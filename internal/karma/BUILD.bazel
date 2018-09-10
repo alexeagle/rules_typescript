@@ -13,16 +13,35 @@ load("@build_bazel_rules_typescript//:defs.bzl", "ts_library")
 ts_library(
     name = "karma_concat_js",
     srcs = glob(["*.ts"]),
-    module_name = "karma-concat-js",
+    module_name = "@bazel/karma",
     node_modules = "@build_bazel_rules_typescript_tsc_wrapped_deps//:node_modules",
     tsconfig = "//internal:tsconfig.json",
 )
 
-load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary")
+load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary", "npm_package")
 
 nodejs_binary(
     name = "karma_bin",
     data = [":karma_concat_js"],
     entry_point = "karma/bin/karma",
     node_modules = "@build_bazel_rules_typescript_karma_deps//:node_modules",
+)
+
+genrule(
+    name = "license_copy",
+    srcs = ["//:LICENSE"],
+    outs = ["LICENSE"],
+    cmd = "cp $< $@",
+)
+
+npm_package(
+    name = "npm_package",
+    srcs = [
+        "README.md",
+        "package.json",
+    ],
+    deps = [
+        ":karma_concat_js",
+        ":license_copy",
+    ],
 )

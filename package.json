@@ -1,16 +1,11 @@
 {
-    "name": "@bazel/typescript",
-    "description": "Build TypeScript with Bazel",
+    "description": "Monorepo for TypeScript Bazel support. Published packages are in subdirectories under internal/",
+    "private": true,
     "version": "0.16.2",
     "keywords": [
         "typescript",
         "bazel"
     ],
-    "homepage": "https://github.com/bazelbuild/rules_typescript",
-    "license": "Apache-2.0",
-    "peerDependencies": {
-        "typescript": ">=2.4.2"
-    },
     "dependencies": {
         "protobufjs": "5.0.0",
         "tsutils": "2.20.0"

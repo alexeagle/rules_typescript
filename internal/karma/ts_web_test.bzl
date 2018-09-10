@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"Unit testing in with Karma"
+"Unit testing with Karma"
 
 load(
     "@build_bazel_rules_nodejs//internal:node.bzl",

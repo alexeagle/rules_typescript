@@ -11,8 +11,7 @@
     "glob": "^7.1.2",
     "jsdoc": "^3.5.5",
     "minimist": "^1.2.0",
-    "protobufjs": "Use HEAD to pick up fix for https://github.com/dcodeIO/protobuf.js/pull/1018",
-    "protobufjs": "github:dcodeIO/protobuf.js#65d113b0079fa2570837f3cf95268ce24714a248",
+    "protobufjs": "~5.0.3",
     "semver": "^5.5.0",
     "tmp": "0.0.33",
     "uglify-js": "^2.8.29"

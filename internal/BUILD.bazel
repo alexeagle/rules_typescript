@@ -140,6 +140,7 @@ npm_package(
     name = "npm_package",
     srcs = [
         "README.md",
+        "install_source_map_support.js",
         "package.json",
     ],
     deps = [

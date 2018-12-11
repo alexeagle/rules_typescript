@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "protobufjs": "5.0.3",
-    "source-map-support": "0.5.9",
+    "source-map-support": "github:alexeagle/node-source-map-support#b06b6f0e7566da82b0609e79cd18fc86fe2496ec",
     "tsutils": "2.27.2"
   },
   "devDependencies": {

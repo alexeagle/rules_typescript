@@ -20,6 +20,10 @@ against a minimum dependent build_bazel_rules_typescript version.
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# NB: no other load() statements can go here!
+# we want this file to be runnable under several use cases, including loading this
+# file before anything else
+
 # This version is synced with the version in package.json.
 # It will be automatically synced via the npm "version" script
 # that is run when running `npm version` during the release
@@ -122,6 +126,19 @@ def rules_typescript_dev_dependencies():
         strip_prefix = "skydoc-9bbdf62c03b5c3fed231604f78d3976f47753d79",
         sha256 = "07ae937026cb56000fb268d4986b220e868c1bdfe6aac27ecada4b4b3dae246f",
     )
+
+def install_rules_typescript():
+    http_archive(
+        name = "build_bazel_rules_typescript",
+        url = "https://github.com/bazelbuild/rules_typescript/archive/%s.zip" % VERSION,
+        strip_prefix = "rules_typescript-%s" % VERSION,
+        # TODO: add sha256 so that caching works
+        # 1. create the starklark package that we upload
+        # 2. on-version.js or npm_package rule calc the sha and put it here
+        # 3. only the npm package has this line. can't put a sha in the starlark package
+        # sha256 = "",
+    )
+    rules_typescript_dependencies()
 
 def _maybe(repo_rule, name, **kwargs):
     if name not in native.existing_rules():

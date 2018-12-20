@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@bazel/typescript": "file:../build_bazel_rules_typescript/bazel-bin/internal/npm_package",
+    "@bazel/typescript": "file:/usr/local/google/home/alexeagle/.cache/bazel/_bazel_alexeagle/859eca348cd807944dbd9d433d10a2e6/execroot/build_bazel_rules_typescript/bazel-out/k8-fastbuild/bin/internal/npm_package",
     "typescript": "2.9.2"
   }
 }

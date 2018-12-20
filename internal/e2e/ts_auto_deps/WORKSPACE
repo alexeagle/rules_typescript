@@ -14,17 +14,27 @@
 
 workspace(name = "ts_auto_deps_e2e")
 
-local_repository(
-    name = "build_bazel_rules_typescript",
-    path = "../../..",
-)
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive") 
 
-load("@build_bazel_rules_typescript//:package.bzl", "rules_typescript_dependencies", "rules_typescript_dev_dependencies")
+# local_repository(
+#     name = "build_bazel_rules_typescript",
+#     path = "../../..",
+# )
 
-rules_typescript_dependencies()
+# load("@build_bazel_rules_typescript//:package.bzl", "rules_typescript_dependencies", "rules_typescript_dev_dependencies")
 
-rules_typescript_dev_dependencies()
+# rules_typescript_dependencies()
 
+# rules_typescript_dev_dependencies()
+
+
+#http_archive(
+#    name = "build_bazel_rules_nodejs",
+#    urls = ["https://github.com/bazelbuild/rules_nodejs/archive/0.16.4.zip"],
+#    strip_prefix = "rules_nodejs-0.16.4",
+#)
+local_repository(name = "build_bazel_rules_nodejs", path="../../../../rules_nodejs")
+    
 load("@build_bazel_rules_nodejs//:package.bzl", "rules_nodejs_dependencies")
 
 rules_nodejs_dependencies()
@@ -38,6 +48,10 @@ yarn_install(
     package_json = "//:package.json",
     yarn_lock = "//:yarn.lock",
 )
+
+load("@npm//rules_typescript:package.bzl", "install_rules_typescript")
+
+install_rules_typescript()
 
 load("@io_bazel_rules_go//go:def.bzl", "go_register_toolchains", "go_rules_dependencies")
 

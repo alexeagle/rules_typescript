@@ -11,7 +11,8 @@ import * as bazelDiagnostics from './diagnostics';
 import {constructManifest} from './manifest';
 import * as perfTrace from './perf_trace';
 import {PLUGIN as strictDepsPlugin} from './strict_deps';
-import {BazelOptions, parseTsconfig, resolveNormalizedPath} from './tsconfig';
+import {BazelOptions, ParsedTsConfig, parseTsconfig, resolveNormalizedPath} from './tsconfig';
+import {TscPlugin} from './plugin_api';
 import {debug, log, runAsWorker, runWorkerLoop} from './worker';
 
 /**
@@ -74,8 +75,6 @@ export function gatherDiagnostics(
     program = selectedTsetsePlugin.wrap(program, disabledTsetseRules);
   }
 
-  // TODO(alexeagle): support plugins registered by config
-
   const diagnostics: ts.Diagnostic[] = [];
   perfTrace.wrap('type checking', () => {
     // These checks mirror ts.getPreEmitDiagnostics, with the important
@@ -129,7 +128,7 @@ function runOneBuild(
     throw new Error(
         'Impossible state: if parseTsconfig returns no errors, then parsed should be non-null');
   }
-  const {options, bazelOpts, files, disabledTsetseRules} = parsed;
+  const {options, bazelOpts, files} = parsed;
 
   if (bazelOpts.maxCacheSizeMb !== undefined) {
     const maxCacheSizeBytes = bazelOpts.maxCacheSizeMb * (1 << 20);
@@ -154,14 +153,14 @@ function runOneBuild(
   const perfTracePath = bazelOpts.perfTracePath;
   if (!perfTracePath) {
     return runFromOptions(
-        fileLoader, options, bazelOpts, files, disabledTsetseRules);
+        fileLoader, options, bazelOpts, files, parsed);
   }
 
   log('Writing trace to', perfTracePath);
   const success = perfTrace.wrap(
       'runOneBuild',
       () => runFromOptions(
-          fileLoader, options, bazelOpts, files, disabledTsetseRules));
+          fileLoader, options, bazelOpts, files, parsed));
   if (!success) return false;
   // Force a garbage collection pass.  This keeps our memory usage
   // consistent across multiple compilations, and allows the file
@@ -183,7 +182,7 @@ const expectDiagnosticsWhitelist: string[] = [
 function runFromOptions(
     fileLoader: FileLoader, options: ts.CompilerOptions,
     bazelOpts: BazelOptions, files: string[],
-    disabledTsetseRules: string[]): boolean {
+    tsconfig: ParsedTsConfig): boolean {
   perfTrace.snapshotMemoryUsage();
   cache.resetStats();
   cache.traceStats();
@@ -210,7 +209,7 @@ function runFromOptions(
     // messages refer to the original source.  After any subsequent passes
     // (decorator downleveling or tsickle) we do not type check.
     let diagnostics =
-        gatherDiagnostics(options, bazelOpts, program, disabledTsetseRules);
+        gatherDiagnostics(options, bazelOpts, program, tsconfig.disabledTsetseRules as string[]);
     if (!expectDiagnosticsWhitelist.length ||
         expectDiagnosticsWhitelist.some(p => bazelOpts.target.startsWith(p))) {
       diagnostics = bazelDiagnostics.filterExpected(
@@ -230,16 +229,44 @@ function runFromOptions(
     }
   }
 
+  let angularPlugin: TscPlugin|undefined;
+
+  for (const p of bazelOpts.plugins || []) {
+    switch (p) {
+      case 'Angular':
+      try {
+        const angularCompiler = require('@angular/compiler-cli');
+        angularPlugin = new angularCompiler.NgTscPlugin(tsconfig.angularCompilerOptions);
+      } catch (e) {
+        console.error(e);
+        throw new Error('when using `ts_library(plugins=["Angular"])`, ' +
+        'you must install @angular/compiler-cli');
+      }
+      break;
+      default:
+      throw new Error(`Unknown ts_library plugin ${p}`);
+    }
+  }
+
   const compilationTargets = program.getSourceFiles().filter(
       fileName => isCompilationTarget(bazelOpts, fileName));
+
+  let transforms: ts.CustomTransformers = {
+        before: [],
+        after: [],
+        afterDeclarations: [],
+      };
+  if (angularPlugin && angularPlugin.createTransformers) {
+    transforms = angularPlugin.createTransformers((s: string) => /*FIXME*/s);
+  }
 
   let diagnostics: ts.Diagnostic[] = [];
   let useTsickleEmit = bazelOpts.tsickle;
   if (useTsickleEmit) {
     diagnostics = emitWithTsickle(
-        program, compilerHost, compilationTargets, options, bazelOpts);
+        program, compilerHost, compilationTargets, options, bazelOpts, transforms);
   } else {
-    diagnostics = emitWithTypescript(program, compilationTargets);
+    diagnostics = emitWithTypescript(program, compilationTargets, transforms);
   }
 
   if (diagnostics.length > 0) {
@@ -253,10 +280,12 @@ function runFromOptions(
 }
 
 function emitWithTypescript(
-    program: ts.Program, compilationTargets: ts.SourceFile[]): ts.Diagnostic[] {
+    program: ts.Program, compilationTargets: ts.SourceFile[], transforms: ts.CustomTransformers): ts.Diagnostic[] {
   const diagnostics: ts.Diagnostic[] = [];
   for (const sf of compilationTargets) {
-    const result = program.emit(sf);
+    const result = program.emit(sf, /*writeFile*/ undefined,
+      /*cancellationToken*/ undefined, /*emitOnlyDtsFiles*/ undefined,
+      transforms);
     diagnostics.push(...result.diagnostics);
   }
   return diagnostics;
@@ -265,7 +294,7 @@ function emitWithTypescript(
 function emitWithTsickle(
     program: ts.Program, compilerHost: CompilerHost,
     compilationTargets: ts.SourceFile[], options: ts.CompilerOptions,
-    bazelOpts: BazelOptions): ts.Diagnostic[] {
+    bazelOpts: BazelOptions, transforms: ts.CustomTransformers): ts.Diagnostic[] {
   const emitResults: tsickle.EmitResult[] = [];
   const diagnostics: ts.Diagnostic[] = [];
   // The 'tsickle' import above is only used in type positions, so it won't
@@ -288,7 +317,13 @@ function emitWithTsickle(
     for (const sf of compilationTargets) {
       perfTrace.wrap(`emit ${sf.fileName}`, () => {
         emitResults.push(optTsickle.emitWithTsickle(
-            program, compilerHost, compilerHost, options, sf));
+            program, compilerHost, compilerHost, options, sf, /*writeFile*/ undefined,
+            /*cancellationToken*/ undefined, /*emitOnlyDtsFiles*/ undefined,
+            {
+              beforeTs: transforms.before,
+              afterTs: transforms.after,
+              afterDeclarations: transforms.afterDeclarations,
+            }));
       });
     }
   });

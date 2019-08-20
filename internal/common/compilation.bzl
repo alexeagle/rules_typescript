@@ -18,8 +18,10 @@
 load(":common/json_marshal.bzl", "json_marshal")
 load(":common/module_mappings.bzl", "module_mappings_aspect")
 load("@build_bazel_rules_nodejs//:declaration_provider.bzl", "DeclarationInfo")
+load("@build_bazel_rules_nodejs//:providers.bzl", "JSModuleInfo", "JSNamedModuleInfo", "JSEcmaScriptModuleInfo")
 
 _DEBUG = False
+_LEGACY_TYPESCRIPT_PROVIDER_SUPPORT = False
 
 DEPS_ASPECTS = [
     module_mappings_aspect,
@@ -72,15 +74,39 @@ def assert_js_or_typescript_deps(ctx, deps = None):
     # Fallback to `ctx.attr.deps`.
     deps = deps if deps != None else ctx.attr.deps
     for dep in deps:
-        if not hasattr(dep, "typescript") and not hasattr(dep, "js"):
-            allowed_deps_msg = "Dependencies must be ts_library"
-
-            fail("%s is neither a TypeScript nor a JS producing rule.\n%s\n" % (dep.label, allowed_deps_msg))
+        if _LEGACY_TYPESCRIPT_PROVIDER_SUPPORT:
+            if not JSModuleInfo in dep and not hasattr(dep, "typescript") and not hasattr(dep, "js"):
+                allowed_deps_msg = "Dependencies must provide JSModuleInfo or \"typescript\" or \"js\""
+                fail("%s is neither a TypeScript nor a JS producing rule.\n%s\n" % (dep.label, allowed_deps_msg))
+        else:
+            if not JSModuleInfo in dep:
+                allowed_deps_msg = "Dependencies must provide JSModuleInfo"
+                fail("%s is not JS producing rule.\n%s\n" % (dep.label, allowed_deps_msg))
 
 _DEPSET_TYPE = type(depset())
 
 def _check_ts_provider(dep):
     """Verifies the type shape of the typescript provider in dep, if it has one.
+    """
+
+    # Under Bazel, some third parties may create typescript providers which may not be compatible.
+    # Rather than users getting an obscure error later, explicitly check them and point to the
+    # target that created the bad provider.
+    if DeclarationInfo in dep:
+        if type(dep[DeclarationInfo].declarations) != _DEPSET_TYPE:
+            fail("typescript provider in %s defined declarations as a %s rather than a depset" % (
+                dep.label,
+                type(dep[DeclarationInfo].declarations),
+            ))
+        if type(dep[DeclarationInfo].transitive_declarations) != _DEPSET_TYPE:
+            fail("typescript provider in %s defined transitive_declarations as a %s rather than a depset" % (
+                dep.label,
+                type(dep[DeclarationInfo].transitive_declarations),
+            ))
+    return dep
+
+def _check_legacy_ts_provider(dep):
+    """Verifies the type shape of the legacy typescript provider in dep, if it has one.
     """
 
     # Under Bazel, some third parties have created typescript providers which may not be compatible.
@@ -116,41 +142,51 @@ def _collect_dep_declarations(ctx, deps):
       A struct of depsets for direct, transitive and type-blacklisted declarations.
     """
 
-    deps_and_helpers = [
-        _check_ts_provider(dep)
-        for dep in deps + getattr(ctx.attr, "_helpers", [])
-        if hasattr(dep, "typescript")
-    ]
+    deps_and_helpers = deps + getattr(ctx.attr, "_helpers", [])
 
-    # .d.ts files from direct dependencies, ok for strict deps
-    direct_deps_declarations = [dep.typescript.declarations for dep in deps_and_helpers]
+    direct_declarations_depsets = []
+    transitive_declarations_depsets = []
+    type_blacklisted_declarations_depsets = []
 
-    # all reachable .d.ts files from dependencies.
-    transitive_deps_declarations = [
-        dep.typescript.transitive_declarations
-        for dep in deps_and_helpers
-    ]
+    for dep in deps_and_helpers:
+        if DeclarationInfo in dep:
+            # modern DeclarationInfo provider
+            _check_ts_provider(dep)
 
-    # all reachable .d.ts files from node_modules attribute (if it has a typescript provider)
-    if hasattr(ctx.attr, "node_modules") and hasattr(ctx.attr.node_modules, "typescript"):
-        transitive_deps_declarations += [ctx.attr.node_modules.typescript.transitive_declarations]
+            # .d.ts files from direct dependencies, ok for strict deps
+            direct_declarations_depsets.append(dep[DeclarationInfo].declarations)
 
-    # .d.ts files whose types tsickle will not emit (used for ts_declaration(generate_externs=False).
-    type_blacklisted_declarations = [
-        dep.typescript.type_blacklisted_declarations
-        for dep in deps_and_helpers
-    ]
+            # all reachable .d.ts files from dependencies.
+            transitive_declarations_depsets.append(dep[DeclarationInfo].transitive_declarations)
+
+        elif _LEGACY_TYPESCRIPT_PROVIDER_SUPPORT and hasattr(dep, "typescript"):
+            # legacy "typescript" provider
+            _check_legacy_ts_provider(dep)
+
+            # .d.ts files from direct dependencies, ok for strict deps
+            direct_declarations_depsets.append(dep.typescript.declarations)
+
+            # all reachable .d.ts files from dependencies.
+            transitive_declarations_depsets.append(dep.typescript.transitive_declarations)
+
+            # .d.ts files whose types tsickle will not emit (used for ts_declaration(generate_externs=False).
+            type_blacklisted_declarations_depsets.append(dep.typescript.type_blacklisted_declarations)
+
+    # all reachable .d.ts files from node_modules attribute (if it has a DeclarationInfo provider)
+    if hasattr(ctx.attr, "node_modules") and DeclarationInfo in ctx.attr.node_modules:
+        direct_declarations_depsets.append(ctx.attr.node_modules[DeclarationInfo].declarations)
+        transitive_declarations_depsets.append(ctx.attr.node_modules[DeclarationInfo].transitive_declarations)
 
     # If a tool like github.com/angular/clutz can create .d.ts from type annotated .js
     # its output will be collected here.
 
     return struct(
-        direct = depset(transitive = direct_deps_declarations),
+        direct = depset(transitive = direct_declarations_depsets),
         transitive = depset(
             [extra for extra in ctx.files._additional_d_ts],
-            transitive = transitive_deps_declarations,
+            transitive = transitive_declarations_depsets,
         ),
-        type_blacklisted = depset(transitive = type_blacklisted_declarations),
+        type_blacklisted = depset(transitive = type_blacklisted_declarations_depsets),
     )
 
 def _should_generate_externs(ctx):
@@ -266,7 +302,7 @@ def compile_ts(
             # Sources can be in sub-folders, but not in sub-packages.
             fail("Sources must be in the same package as the ts_library rule, " +
                  "but %s is not in %s" % (src.label, ctx.label.package), "srcs")
-        if hasattr(src, "typescript"):
+        if hasattr(src, "typescript") or JSModuleInfo in src:
             # Guard against users accidentally putting deps into srcs by
             # rejecting all srcs values that have a TypeScript provider.
             # TS rules produce a ".d.ts" file, which is a valid input in "srcs",
@@ -449,7 +485,11 @@ def compile_ts(
         # Re-export sources from deps.
         # TODO(b/30018387): introduce an "exports" attribute.
         for dep in deps:
-            if hasattr(dep, "typescript"):
+            if DeclarationInfo in dep:
+                # modern DeclarationInfo provider
+                declarations_depsets.append(dep[DeclarationInfo].declarations)
+            elif _LEGACY_TYPESCRIPT_PROVIDER_SUPPORT and hasattr(dep, "typescript"):
+                # legacy "typescript" provider
                 declarations_depsets.append(dep.typescript.declarations)
     files_depsets.extend(declarations_depsets)
 
@@ -458,15 +498,6 @@ def compile_ts(
     # compilation over the d.ts file and extracting type information.)
     if not is_library:
         files_depsets.append(depset(tsickle_externs))
-
-    transitive_es6_sources = depset()
-    for dep in deps:
-        if hasattr(dep, "typescript"):
-            transitive_es6_sources = depset(transitive = [
-                transitive_es6_sources,
-                dep.typescript.transitive_es6_sources,
-            ])
-    transitive_es6_sources = depset(transitive = [transitive_es6_sources, es6_sources])
 
     return {
         "providers": [
@@ -489,6 +520,16 @@ def compile_ts(
                 declarations = depset(transitive = declarations_depsets),
                 transitive_declarations = transitive_decls,
             ),
+            JSModuleInfo(
+                sources = es5_sources,
+                module_format = "umd",
+            ),
+            JSNamedModuleInfo(
+                sources = es5_sources,
+            ),
+            JSEcmaScriptModuleInfo(
+                sources = es6_sources,
+            ),
         ],
         "instrumented_files": {
             "dependency_attributes": ["deps", "runtime_deps"],
@@ -510,7 +551,6 @@ def compile_ts(
             "replay_params": replay_params,
             # TODO(b/139705078): remove when consumers migrated to DeclarationInfo
             "transitive_declarations": transitive_decls,
-            "transitive_es6_sources": transitive_es6_sources,
             "tsickle_externs": tsickle_externs,
             "type_blacklisted_declarations": type_blacklisted_declarations,
         },

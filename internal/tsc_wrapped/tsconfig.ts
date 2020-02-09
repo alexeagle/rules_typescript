@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+//import {AngularCompilerOptions} from '@angular/compiler-cli';
 import * as path from 'path';
 import * as ts from 'typescript';
 
@@ -179,9 +180,9 @@ export interface BazelOptions {
   hasImplementation?: boolean;
 
   /**
-   * Enable the Angular ngtsc plugin.
+   * If present, run the Angular ngtsc plugin with the given options.
    */
-  compileAngularTemplates?: boolean;
+  angularCompilerOptions?: {[k: string]: any, assets: string[]};
 
 
   /**
@@ -372,6 +373,10 @@ export function parseTsconfig(
   if (bazelOpts.nodeModulesPrefix) {
     bazelOpts.nodeModulesPrefix =
         resolveNormalizedPath(options.rootDir!, bazelOpts.nodeModulesPrefix);
+  }
+  if (bazelOpts.angularCompilerOptions && bazelOpts.angularCompilerOptions.assets) {
+    bazelOpts.angularCompilerOptions.assets = bazelOpts.angularCompilerOptions.assets.map(
+      f => resolveNormalizedPath(options.rootDir!, f));
   }
 
   let disabledTsetseRules: string[] = [];

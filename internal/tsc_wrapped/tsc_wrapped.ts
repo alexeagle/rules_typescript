@@ -45,6 +45,13 @@ export function main(args: string[]) {
 /** The one ProgramAndFileCache instance used in this process. */
 const cache = new ProgramAndFileCache(debug);
 
+function temporaryAngularPluginSyntheticFileToSourceFile(sf: ts.SourceFile): string|undefined {
+  if (sf.fileName.endsWith('.ngfactory.ts') || sf.fileName.endsWith('.ngsummary.ts')) {
+    return sf.fileName.slice(0, -13 /*'.ngfactory|ngsummary.ts'.length*/) + '.ts';
+  }
+  return undefined;
+}
+
 function isCompilationTarget(
     bazelOpts: BazelOptions, sf: ts.SourceFile): boolean {
   if (bazelOpts.isJsTranspilation && bazelOpts.transpiledJsInputDirectory) {
@@ -53,7 +60,9 @@ function isCompilationTarget(
     // compilationTargetSrc is resolved, so use that for the comparison.
     return sf.fileName.startsWith(bazelOpts.compilationTargetSrc[0]);
   }
-  return (bazelOpts.compilationTargetSrc.indexOf(sf.fileName) !== -1);
+  // This is necessary to cause emit on the Angular synthetic files
+  let fileName = temporaryAngularPluginSyntheticFileToSourceFile(sf) || sf.fileName;
+  return (bazelOpts.compilationTargetSrc.indexOf(fileName) !== -1);
 }
 
 /**
@@ -62,14 +71,11 @@ function isCompilationTarget(
  */
 export function gatherDiagnostics(
     options: ts.CompilerOptions, bazelOpts: BazelOptions, program: ts.Program,
-    disabledTsetseRules: string[], angularPlugin?: TscPlugin,
+    disabledTsetseRules: string[],
     plugins: DiagnosticPlugin[] = []): ts.Diagnostic[] {
   // Install extra diagnostic plugins
   plugins.push(
       ...getCommonPlugins(options, bazelOpts, program, disabledTsetseRules));
-  if (angularPlugin) {
-    program = angularPlugin.wrap(program);
-  }
 
   const diagnostics: ts.Diagnostic[] = [];
   perfTrace.wrap('type checking', () => {
@@ -90,7 +96,10 @@ export function gatherDiagnostics(
     for (const sf of sourceFilesToCheck) {
       perfTrace.wrap(`check ${sf.fileName}`, () => {
         diagnostics.push(...program.getSyntacticDiagnostics(sf));
-        diagnostics.push(...program.getSemanticDiagnostics(sf));
+        // Don't try to type-check Angular's synthetic files
+        if (temporaryAngularPluginSyntheticFileToSourceFile(sf) == undefined) {
+          diagnostics.push(...program.getSemanticDiagnostics(sf));
+        }
       });
       perfTrace.snapshotMemoryUsage();
     }
@@ -214,13 +223,7 @@ function runOneBuild(
     throw new Error(
         'Impossible state: if parseTsconfig returns no errors, then parsed should be non-null');
   }
-  const {
-    options,
-    bazelOpts,
-    files,
-    disabledTsetseRules,
-    angularCompilerOptions
-  } = parsed;
+  const {options, bazelOpts, files, disabledTsetseRules} = parsed;
 
   const sourceFiles: string[] = [];
   for (let i = 0; i < files.length; i++) {
@@ -251,8 +254,7 @@ function runOneBuild(
   const perfTracePath = bazelOpts.perfTracePath;
   if (!perfTracePath) {
     const {diagnostics} = createProgramAndEmit(
-        fileLoader, options, bazelOpts, sourceFiles, disabledTsetseRules,
-        angularCompilerOptions);
+        fileLoader, options, bazelOpts, sourceFiles, disabledTsetseRules);
     if (diagnostics.length > 0) {
       console.error(bazelDiagnostics.format(bazelOpts.target, diagnostics));
       return false;
@@ -263,8 +265,7 @@ function runOneBuild(
   log('Writing trace to', perfTracePath);
   const success = perfTrace.wrap('runOneBuild', () => {
     const {diagnostics} = createProgramAndEmit(
-        fileLoader, options, bazelOpts, sourceFiles, disabledTsetseRules,
-        angularCompilerOptions);
+        fileLoader, options, bazelOpts, sourceFiles, disabledTsetseRules);
     if (diagnostics.length > 0) {
       console.error(bazelDiagnostics.format(bazelOpts.target, diagnostics));
       return false;
@@ -310,8 +311,7 @@ function errorDiag(messageText: string) {
  */
 export function createProgramAndEmit(
     fileLoader: FileLoader, options: ts.CompilerOptions,
-    bazelOpts: BazelOptions, files: string[], disabledTsetseRules: string[],
-    angularCompilerOptions?: {[key: string]: unknown}):
+    bazelOpts: BazelOptions, files: string[], disabledTsetseRules: string[]):
     {program?: ts.Program, diagnostics: ts.Diagnostic[]} {
   // Beware! createProgramAndEmit must not print to console, nor exit etc.
   // Handle errors by reporting and returning diagnostics.
@@ -325,16 +325,25 @@ export function createProgramAndEmit(
   const moduleResolver = bazelOpts.isJsTranspilation ?
       makeJsModuleResolver(bazelOpts.workspaceName) :
       ts.resolveModuleName;
+
+  // Files which should be allowed to be read, but aren't TypeScript code
+  const assets: string[] = [];
+  if (bazelOpts.angularCompilerOptions) {
+    if (bazelOpts.angularCompilerOptions.assets) {
+      assets.push(...bazelOpts.angularCompilerOptions.assets);
+    }
+  }
+
   const tsickleCompilerHost = new CompilerHost(
-      files, options, bazelOpts, compilerHostDelegate, fileLoader,
+      [...files, ...assets], options, bazelOpts, compilerHostDelegate, fileLoader,
       moduleResolver);
   let compilerHost: PluginCompilerHost = tsickleCompilerHost;
   const diagnosticPlugins: DiagnosticPlugin[] = [];
 
   let angularPlugin: TscPlugin|undefined;
-  if (bazelOpts.compileAngularTemplates) {
+  if (bazelOpts.angularCompilerOptions) {
     try {
-      const ngOptions = angularCompilerOptions || {};
+      const ngOptions = bazelOpts.angularCompilerOptions;
       // Add the rootDir setting to the options passed to NgTscPlugin.
       // Required so that synthetic files added to the rootFiles in the program
       // can be given absolute paths, just as we do in tsconfig.ts, matching
@@ -343,24 +352,19 @@ export function createProgramAndEmit(
 
       // Dynamically load the Angular compiler installed as a peerDep
       const ngtsc = require('@angular/compiler-cli');
-
-      // TODO(alexeagle): re-enable after Angular API changes land
-      // See https://github.com/angular/angular/pull/34792
-      // and pending CL/289493608
-      // By commenting this out, we allow Angular caretaker to sync changes from
-      // GitHub without having to coordinate any Piper patches in the same CL.
-      // angularPlugin = new ngtsc.NgTscPlugin(ngOptions);
+      angularPlugin = new ngtsc.NgTscPlugin(ngOptions);
+      diagnosticPlugins.push(angularPlugin!);
     } catch (e) {
       return {
         diagnostics: [errorDiag(
-            'when using `ts_library(compile_angular_templates=True)`, ' +
+            'when using `ts_library(use_angular_plugin=True)`, ' +
             `you must install @angular/compiler-cli (was: ${e})`)]
       };
     }
 
-    // Wrap host only needed until after Ivy cleanup
+    // Wrap host so that Ivy compiler can add a file to it (has synthetic types for checking templates)
     // TODO(alexeagle): remove after ngsummary and ngfactory files eliminated
-    compilerHost = angularPlugin!.wrapHost!(files, compilerHost);
+    compilerHost = angularPlugin!.wrapHost!(compilerHost, files, options);
   }
 
 
@@ -369,7 +373,23 @@ export function createProgramAndEmit(
       'createProgram',
       () => ts.createProgram(
           compilerHost.inputFiles, options, compilerHost, oldProgram));
-  cache.putProgram(bazelOpts.target, program);
+  // Angular's incremental compilation requires that the angular-wrapped program
+  // be the oldProgram For now, don't attempt incremental compiles at all. This
+  // is the same behavior as ng_module so this isn't a regression in
+  // user-visible behavior.
+  if (bazelOpts.angularCompilerOptions == undefined) {
+    cache.putProgram(bazelOpts.target, program);
+  }
+
+  let transformers: ts.CustomTransformers = {
+    before: [],
+    after: [],
+    afterDeclarations: [],
+  };
+  if (angularPlugin) {
+    angularPlugin!.setupCompilation(program);
+    transformers = angularPlugin!.prepareEmit().transformers;
+  }
 
 
   if (!bazelOpts.isJsTranspilation) {
@@ -377,8 +397,7 @@ export function createProgramAndEmit(
     // messages refer to the original source.  After any subsequent passes
     // (decorator downleveling or tsickle) we do not type check.
     let diagnostics = gatherDiagnostics(
-        options, bazelOpts, program, disabledTsetseRules, angularPlugin,
-        diagnosticPlugins);
+        options, bazelOpts, program, disabledTsetseRules, diagnosticPlugins);
     if (!expectDiagnosticsWhitelist.length ||
         expectDiagnosticsWhitelist.some(p => bazelOpts.target.startsWith(p))) {
       diagnostics = bazelDiagnostics.filterExpected(
@@ -401,22 +420,13 @@ export function createProgramAndEmit(
 
   let diagnostics: ts.Diagnostic[] = [];
   let useTsickleEmit = bazelOpts.tsickle;
-  let transforms: ts.CustomTransformers = {
-    before: [],
-    after: [],
-    afterDeclarations: [],
-  };
-
-  if (angularPlugin) {
-    transforms = angularPlugin.createTransformers!(compilerHost);
-  }
 
   if (useTsickleEmit) {
     diagnostics = emitWithTsickle(
         program, tsickleCompilerHost, compilationTargets, options, bazelOpts,
-        transforms);
+        transformers);
   } else {
-    diagnostics = emitWithTypescript(program, compilationTargets, transforms);
+    diagnostics = emitWithTypescript(program, compilationTargets, transformers);
   }
 
   if (diagnostics.length > 0) {

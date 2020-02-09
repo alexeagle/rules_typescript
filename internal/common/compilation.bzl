@@ -156,7 +156,7 @@ def _outputs(ctx, label, srcs_files = []):
 
         # Temporary until all imports of ngfactory/ngsummary files are removed
         # TODO(alexeagle): clean up after Ivy launch
-        if getattr(ctx, "compile_angular_templates", False):
+        if getattr(ctx.attr, "use_angular_plugin", False):
             closure_js_files += [ctx.actions.declare_file(basename + ".ngfactory.mjs")]
             closure_js_files += [ctx.actions.declare_file(basename + ".ngsummary.mjs")]
 
@@ -166,9 +166,11 @@ def _outputs(ctx, label, srcs_files = []):
 
             # Temporary until all imports of ngfactory/ngsummary files are removed
             # TODO(alexeagle): clean up after Ivy launch
-            if getattr(ctx, "compile_angular_templates", False):
+            if getattr(ctx.attr, "use_angular_plugin", False):
                 devmode_js_files += [ctx.actions.declare_file(basename + ".ngfactory.js")]
                 devmode_js_files += [ctx.actions.declare_file(basename + ".ngsummary.js")]
+                declaration_files += [ctx.actions.declare_file(basename + ".ngfactory.d.ts")]
+                declaration_files += [ctx.actions.declare_file(basename + ".ngsummary.d.ts")]
     return struct(
         closure_js = closure_js_files,
         devmode_js = devmode_js_files,
@@ -280,7 +282,7 @@ def compile_ts(
     if "TYPESCRIPT_PERF_TRACE_TARGET" in ctx.var:
         perf_trace = str(ctx.label) == ctx.var["TYPESCRIPT_PERF_TRACE_TARGET"]
 
-    compilation_inputs = dep_declarations.transitive_declarations.to_list() + srcs_files
+    compilation_inputs = dep_declarations.transitive_declarations.to_list() + srcs_files + getattr(ctx.files, "angular_assets", [])
     tsickle_externs_path = tsickle_externs[0] if tsickle_externs else None
 
     # Calculate allowed dependencies for strict deps enforcement.
